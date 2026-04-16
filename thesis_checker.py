@@ -590,7 +590,17 @@ def is_catalog_chapter_entry(text: str) -> bool:
         return False
     if not CHAPTER_PATTERN.match(normalized):
         return False
-    return "." in text or "\t" in text or "…" in text or "..." in text or "．" in text
+    has_leader = "." in text or "\t" in text or "…" in text or "..." in text or "．" in text
+    has_page_tail = bool(re.search(r"(\d+|[ivxlcdmIVXLCDM]+)\s*$", text))
+    return has_leader or has_page_tail
+
+
+def is_catalog_entry(text: str) -> bool:
+    if not text.strip():
+        return False
+    has_leader = "." in text or "\t" in text or "…" in text or "..." in text or "．" in text
+    has_page_tail = bool(re.search(r"(\d+|[ivxlcdmIVXLCDM]+)\s*$", text))
+    return has_leader and has_page_tail
 
 
 def add_issue(
@@ -652,9 +662,12 @@ def check_paragraphs(
             in_abstract = True
         elif kind in {"章標題", "前置標題"} and text != "\u6458\u8981":
             in_abstract = False
+        catalog_like = is_catalog_entry(text)
+        catalog_chapter_like = is_catalog_chapter_entry(text)
+
         if text == "\u76ee\u9304":
             in_catalog = True
-        elif kind == "章標題" and not is_catalog_chapter_entry(text):
+        elif kind == "章標題" and not catalog_chapter_like:
             in_catalog = False
         fonts = paragraph_fonts(paragraph)
         sizes = paragraph_sizes(document, paragraph)
@@ -679,7 +692,7 @@ def check_paragraphs(
             location = f"\u9801\u78bc\u7121\u6cd5\u78ba\u5b9a\uff08\u6bb5\u843d\u5e8f\u865f {index}\uff09"
 
         paragraph_summaries.append({"頁碼": page_number or "\u7121\u6cd5\u5224\u5b9a", "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
-        if in_catalog and is_catalog_chapter_entry(text):
+        if (in_catalog or catalog_like) and catalog_chapter_like:
             if not effective_paragraph_bold(document, paragraph):
                 add_issue(issues, "error", "\u76ee\u9304\u9801\u683c\u5f0f", f"{location}\u7684\u76ee\u9304\u7ae0\u9805\u76ee\u672a\u8a2d\u70ba\u7c97\u9ad4", f"\u5075\u6e2c\u5230\u7684\u76ee\u9304\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u76ee\u9304\u4e2d\u7684\u7ae0\u9805\u76ee\u8acb\u8a2d\u70ba 12 pt \u7c97\u9ad4\u3002")
             if sizes and 12.0 not in sizes:
