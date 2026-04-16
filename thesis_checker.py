@@ -247,6 +247,13 @@ def run_style_bold(document: Document, run) -> bool | None:
     return None
 
 
+def effective_run_is_bold(document: Document, run) -> bool | None:
+    bold = effective_run_bold(run)
+    if bold is not None:
+        return bold
+    return run_style_bold(document, run)
+
+
 def effective_paragraph_bold(document: Document, paragraph) -> bool:
     runs = list(iter_runs_with_text(paragraph))
     if not runs:
@@ -265,6 +272,38 @@ def effective_paragraph_bold(document: Document, paragraph) -> bool:
                 bold_votes += 1
     if known_votes:
         return bold_votes >= max(1, known_votes // 2)
+    paragraph_level = paragraph_style_bold(document, paragraph)
+    return bool(paragraph_level)
+
+
+def effective_catalog_heading_bold(document: Document, paragraph) -> bool:
+    # For TOC lines, only inspect the heading text segment before leader dots / page numbers.
+    runs = []
+    for run in iter_runs_with_text(paragraph):
+        text = (run.text or "").strip()
+        if not text:
+            continue
+        if "." in text or "…" in text or "\t" in text:
+            break
+        if re.fullmatch(r"[ivxlcdmIVXLCDM\d]+", text):
+            break
+        runs.append(run)
+
+    if not runs:
+        return effective_paragraph_bold(document, paragraph)
+
+    bold_votes = 0
+    known_votes = 0
+    for run in runs:
+        bold = effective_run_is_bold(document, run)
+        if bold is not None:
+            known_votes += 1
+            if bold:
+                bold_votes += 1
+
+    if known_votes:
+        return bold_votes >= max(1, known_votes // 2)
+
     paragraph_level = paragraph_style_bold(document, paragraph)
     return bool(paragraph_level)
 
@@ -693,7 +732,7 @@ def check_paragraphs(
 
         paragraph_summaries.append({"頁碼": page_number or "\u7121\u6cd5\u5224\u5b9a", "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
         if catalog_chapter_like:
-            if not effective_paragraph_bold(document, paragraph):
+            if not effective_catalog_heading_bold(document, paragraph):
                 add_issue(issues, "error", "\u76ee\u9304\u9801\u683c\u5f0f", f"{location}\u7684\u76ee\u9304\u7ae0\u9805\u76ee\u672a\u8a2d\u70ba\u7c97\u9ad4", f"\u5075\u6e2c\u5230\u7684\u76ee\u9304\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u76ee\u9304\u4e2d\u7684\u7ae0\u9805\u76ee\u8acb\u8a2d\u70ba 12 pt \u7c97\u9ad4\u3002")
             if sizes and 12.0 not in sizes:
                 add_issue(issues, "error", "\u76ee\u9304\u9801\u683c\u5f0f", f"{location}\u7684\u76ee\u9304\u7ae0\u9805\u76ee\u4e0d\u662f 12 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes)}\u3002", location, "\u76ee\u9304\u4e2d\u7684\u7ae0\u9805\u76ee\u8acb\u8a2d\u70ba 12 pt \u7c97\u9ad4\u3002")
