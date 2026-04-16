@@ -331,7 +331,55 @@ def element_local_name(element) -> str:
     return etree.QName(element).localname
 
 
-def paragraph_page_map(docx_path: Path) -> dict[int, int]:
+def roman_number(value: int, upper: bool = False) -> str:
+    pairs = [
+        (1000, "m"),
+        (900, "cm"),
+        (500, "d"),
+        (400, "cd"),
+        (100, "c"),
+        (90, "xc"),
+        (50, "l"),
+        (40, "xl"),
+        (10, "x"),
+        (9, "ix"),
+        (5, "v"),
+        (4, "iv"),
+        (1, "i"),
+    ]
+    result = []
+    current = value
+    for number, symbol in pairs:
+        while current >= number:
+            result.append(symbol)
+            current -= number
+    text = "".join(result)
+    return text.upper() if upper else text
+
+
+def format_page_label(page_number: int, fmt: str) -> str:
+    if fmt == "upperRoman":
+        return roman_number(page_number, upper=True)
+    if fmt == "lowerRoman":
+        return roman_number(page_number, upper=False)
+    return str(page_number)
+
+
+def parse_section_page_settings(sect_pr, previous_start: int, previous_fmt: str) -> tuple[int, str]:
+    pg_num_type = sect_pr.find("w:pgNumType", namespaces=WORD_NS) if sect_pr is not None else None
+    start = previous_start
+    fmt = previous_fmt
+    if pg_num_type is not None:
+        start_attr = pg_num_type.get(f"{{{WORD_NS['w']}}}start")
+        fmt_attr = pg_num_type.get(f"{{{WORD_NS['w']}}}fmt")
+        if start_attr:
+            start = int(start_attr)
+        if fmt_attr:
+            fmt = fmt_attr
+    return start, fmt
+
+
+def paragraph_page_map(docx_path: Path) -> dict[int, str]:
     root = parse_xml(extract_docx_xml(docx_path, "word/document.xml"))
     if root is None:
         return {}
@@ -340,22 +388,74 @@ def paragraph_page_map(docx_path: Path) -> dict[int, int]:
     if body is None:
         return {}
 
-    page_number = 1
+    physical_page_number = 1
     paragraph_index = 0
-    mapping: dict[int, int] = {}
+    physical_map: dict[int, int] = {}
+    sections: list[dict] = []
+    section_start_para = 1
+    current_start = 1
+    current_fmt = "decimal"
 
     for child in body:
-        if element_local_name(child) != "p":
+        local_name = element_local_name(child)
+
+        if local_name == "p":
+            paragraph_index += 1
+            physical_map[paragraph_index] = physical_page_number
+
+            rendered_breaks = child.xpath(".//w:lastRenderedPageBreak", namespaces=WORD_NS)
+            manual_breaks = child.xpath(".//w:br[@w:type='page']", namespaces=WORD_NS)
+
+            ppr = child.find("w:pPr", namespaces=WORD_NS)
+            sect_pr = ppr.find("w:sectPr", namespaces=WORD_NS) if ppr is not None else None
+            if sect_pr is not None:
+                current_start, current_fmt = parse_section_page_settings(sect_pr, current_start, current_fmt)
+                sections.append(
+                    {
+                        "start_para": section_start_para,
+                        "end_para": paragraph_index,
+                        "start_page_number": current_start,
+                        "fmt": current_fmt,
+                    }
+                )
+                section_start_para = paragraph_index + 1
+
+            physical_page_number += len(rendered_breaks) + len(manual_breaks)
+
+        elif local_name == "sectPr":
+            current_start, current_fmt = parse_section_page_settings(child, current_start, current_fmt)
+            sections.append(
+                {
+                    "start_para": section_start_para,
+                    "end_para": paragraph_index,
+                    "start_page_number": current_start,
+                    "fmt": current_fmt,
+                }
+            )
+
+    if not sections and paragraph_index:
+        sections.append(
+            {
+                "start_para": 1,
+                "end_para": paragraph_index,
+                "start_page_number": 1,
+                "fmt": "decimal",
+            }
+        )
+
+    label_map: dict[int, str] = {}
+    for section in sections:
+        if section["start_para"] > section["end_para"]:
             continue
+        start_para = section["start_para"]
+        start_physical_page = physical_map.get(start_para, 1)
+        for para_idx in range(section["start_para"], section["end_para"] + 1):
+            physical_page = physical_map.get(para_idx, start_physical_page)
+            offset = physical_page - start_physical_page
+            displayed_page = section["start_page_number"] + offset
+            label_map[para_idx] = format_page_label(displayed_page, section["fmt"])
 
-        paragraph_index += 1
-        mapping[paragraph_index] = page_number
-
-        rendered_breaks = child.xpath(".//w:lastRenderedPageBreak", namespaces=WORD_NS)
-        manual_breaks = child.xpath(".//w:br[@w:type='page']", namespaces=WORD_NS)
-        page_number += len(rendered_breaks) + len(manual_breaks)
-
-    return mapping
+    return label_map
 
 
 def page_number_info(docx_path: Path) -> dict[str, str | bool]:
@@ -450,7 +550,7 @@ def analyze_sections(document: Document, issues: list[Issue]) -> list[dict]:
     return results
 
 
-def check_paragraphs(document: Document, issues: list[Issue], page_map: dict[int, int]) -> list[dict]:
+def check_paragraphs(document: Document, issues: list[Issue], page_map: dict[int, str]) -> list[dict]:
     paragraph_summaries = []
     in_abstract = False
     for index, paragraph, text in visible_paragraphs(document):
@@ -465,8 +565,8 @@ def check_paragraphs(document: Document, issues: list[Issue], page_map: dict[int
         alignment = effective_alignment or "\u672a\u6307\u5b9a"
         line_spacing_label, line_spacing_value = paragraph_line_spacing(paragraph)
         page_number = page_map.get(index)
-        location = f"\u7b2c {page_number} \u9801" if page_number is not None else f"\u7b2c {index} \u6bb5"
-        paragraph_summaries.append({"頁碼": page_number, "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
+        location = f"\u7b2c {page_number} \u9801" if page_number else f"\u7b2c {index} \u6bb5"
+        paragraph_summaries.append({"頁碼": page_number or "\u7121\u6cd5\u5224\u5b9a", "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
         if kind == "章標題":
             if alignment not in {"\u7f6e\u4e2d", "\u7591\u4f3c\u4ee5 Tab \u505a\u8996\u89ba\u7f6e\u4e2d"}:
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u672a\u7f6e\u4e2d", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\uff0c\u5c0d\u9f4a\u65b9\u5f0f\u70ba\u300c{alignment}\u300d\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba\u7f6e\u4e2d\u3002")
