@@ -327,6 +327,37 @@ def parse_xml(data: bytes | None):
     return None if not data else etree.fromstring(data)
 
 
+def element_local_name(element) -> str:
+    return etree.QName(element).localname
+
+
+def paragraph_page_map(docx_path: Path) -> dict[int, int]:
+    root = parse_xml(extract_docx_xml(docx_path, "word/document.xml"))
+    if root is None:
+        return {}
+
+    body = root.find("w:body", namespaces=WORD_NS)
+    if body is None:
+        return {}
+
+    page_number = 1
+    paragraph_index = 0
+    mapping: dict[int, int] = {}
+
+    for child in body:
+        if element_local_name(child) != "p":
+            continue
+
+        paragraph_index += 1
+        mapping[paragraph_index] = page_number
+
+        rendered_breaks = child.xpath(".//w:lastRenderedPageBreak", namespaces=WORD_NS)
+        manual_breaks = child.xpath(".//w:br[@w:type='page']", namespaces=WORD_NS)
+        page_number += len(rendered_breaks) + len(manual_breaks)
+
+    return mapping
+
+
 def page_number_info(docx_path: Path) -> dict[str, str | bool]:
     footer_files = list_docx_members(docx_path, "word/footer")
     if not footer_files:
@@ -419,7 +450,7 @@ def analyze_sections(document: Document, issues: list[Issue]) -> list[dict]:
     return results
 
 
-def check_paragraphs(document: Document, issues: list[Issue]) -> list[dict]:
+def check_paragraphs(document: Document, issues: list[Issue], page_map: dict[int, int]) -> list[dict]:
     paragraph_summaries = []
     in_abstract = False
     for index, paragraph, text in visible_paragraphs(document):
@@ -433,8 +464,9 @@ def check_paragraphs(document: Document, issues: list[Issue]) -> list[dict]:
         effective_alignment = effective_paragraph_alignment_name(document, paragraph)
         alignment = effective_alignment or "\u672a\u6307\u5b9a"
         line_spacing_label, line_spacing_value = paragraph_line_spacing(paragraph)
-        location = f"\u7b2c {index} \u6bb5"
-        paragraph_summaries.append({"段落序號": index, "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
+        page_number = page_map.get(index)
+        location = f"\u7b2c {page_number} \u9801" if page_number is not None else f"\u7b2c {index} \u6bb5"
+        paragraph_summaries.append({"頁碼": page_number, "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
         if kind == "章標題":
             if alignment not in {"\u7f6e\u4e2d", "\u7591\u4f3c\u4ee5 Tab \u505a\u8996\u89ba\u7f6e\u4e2d"}:
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u672a\u7f6e\u4e2d", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\uff0c\u5c0d\u9f4a\u65b9\u5f0f\u70ba\u300c{alignment}\u300d\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba\u7f6e\u4e2d\u3002")
@@ -486,8 +518,9 @@ def analyze_docx(docx_path: str | Path) -> dict:
     path = Path(docx_path)
     document = Document(path)
     issues: list[Issue] = []
+    page_map = paragraph_page_map(path)
     section_results = analyze_sections(document, issues)
-    paragraph_results = check_paragraphs(document, issues)
+    paragraph_results = check_paragraphs(document, issues, page_map)
     coverage = summarize_document(document, path, issues)
     severity_rank = {"error": 0, "warning": 1, "info": 2}
     issues_sorted = sorted(issues, key=lambda item: (severity_rank.get(item.severity, 9), item.category, item.location or ""))
