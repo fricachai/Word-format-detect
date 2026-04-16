@@ -5,9 +5,9 @@ from pathlib import Path
 
 import streamlit as st
 
-from thesis_checker import analyze_docx
+from thesis_checker import analyze_docx, analyze_pdf
 
-ALLOWED_EXTENSIONS = {".docx"}
+ALLOWED_EXTENSIONS = {".docx", ".pdf"}
 
 
 def save_uploaded_file(uploaded_file) -> Path:
@@ -32,24 +32,30 @@ def render_summary(report: dict) -> None:
     col1.metric("\u932f\u8aa4", report["summary"]["errors"])
     col2.metric("\u8b66\u544a", report["summary"]["warnings"])
     col3.metric("\u63d0\u793a", report["summary"]["infos"])
-    col4.metric("\u7bc0\u6578", report["coverage"]["section_count"])
+    if report["file_type"] == "pdf":
+        col4.metric("\u9801\u6578", report["coverage"]["page_count"])
+    else:
+        col4.metric("\u7bc0\u6578", report["coverage"]["section_count"])
     st.caption(f"\u6a94\u540d\uff1a{report['file_name']}")
 
 
 def render_properties(report: dict) -> None:
     st.subheader("\u6587\u4ef6\u5c6c\u6027\u8207\u7248\u9762\u8cc7\u8a0a")
     page_number = report["coverage"]["page_number"]
-    protection = report["coverage"]["protection"]
-    st.write(f"\u6bb5\u843d\u6578\uff1a{report['coverage']['paragraph_count']}")
+    st.write(f"\u53ef\u64f7\u53d6\u884c\u6578\uff1a{report['coverage']['paragraph_count']}")
     st.write(
         "\u9801\u78bc\u6b04\u4f4d\uff1a"
         + (f"\u5df2\u5075\u6e2c\u5230 ({page_number['format']})" if page_number["present"] else "\u672a\u5075\u6e2c\u5230")
     )
-    st.write("\u6d6e\u6c34\u5370\uff1a" + ("\u5df2\u5075\u6e2c\u5230\u76f8\u95dc\u7269\u4ef6" if report["coverage"]["watermark"] else "\u672a\u5075\u6e2c\u5230"))
-    st.write(
-        "Word \u4fdd\u8b77\uff1a"
-        + (f"\u5df2\u555f\u7528 ({protection['mode']})" if protection["enabled"] else "\u672a\u555f\u7528")
-    )
+    if report["file_type"] == "docx":
+        protection = report["coverage"]["protection"]
+        st.write("\u6d6e\u6c34\u5370\uff1a" + ("\u5df2\u5075\u6e2c\u5230\u76f8\u95dc\u7269\u4ef6" if report["coverage"]["watermark"] else "\u672a\u5075\u6e2c\u5230"))
+        st.write(
+            "Word \u4fdd\u8b77\uff1a"
+            + (f"\u5df2\u555f\u7528 ({protection['mode']})" if protection["enabled"] else "\u672a\u555f\u7528")
+        )
+    else:
+        st.write(f"PDF \u9801\u6578\uff1a{report['coverage']['page_count']}")
     st.dataframe(report["section_results"], use_container_width=True, hide_index=True)
 
 
@@ -84,27 +90,30 @@ def main() -> None:
 
     st.title("\u8ad6\u6587 Word \u683c\u5f0f\u6aa2\u67e5\u5668")
     st.write(
-        "\u4e0a\u50b3 `.docx` \u8ad6\u6587\u6a94\uff0c\u7cfb\u7d71\u6703\u4f9d\u64da\u5716\u66f8\u9928\u898f\u7bc4\u81ea\u52d5\u7522\u51fa\u8a73\u7d30\u6aa2\u67e5\u5831\u544a\u3002"
+        "\u4e0a\u50b3 `.docx` \u6216 `.pdf` \u8ad6\u6587\u6a94\uff0c\u7cfb\u7d71\u6703\u4f9d\u64da\u5716\u66f8\u9928\u898f\u7bc4\u81ea\u52d5\u7522\u51fa\u8a73\u7d30\u6aa2\u67e5\u5831\u544a\u3002"
     )
 
     uploaded_file = st.file_uploader(
-        "\u9078\u64c7 Word \u6a94\u6848",
-        type=["docx"],
+        "\u9078\u64c7\u8ad6\u6587\u6a94\u6848",
+        type=["docx", "pdf"],
         accept_multiple_files=False,
     )
 
     if uploaded_file is None:
-        st.caption("\u76ee\u524d\u53ea\u652f\u63f4 `.docx` \u683c\u5f0f\u3002")
+        st.caption("\u76ee\u524d\u652f\u63f4 `.docx` \u8207 `.pdf` \u683c\u5f0f\u3002")
         return
 
     if Path(uploaded_file.name).suffix.lower() not in ALLOWED_EXTENSIONS:
-        st.error("\u76ee\u524d\u53ea\u652f\u63f4 .docx \u683c\u5f0f\u3002")
+        st.error("\u76ee\u524d\u53ea\u652f\u63f4 .docx \u8207 .pdf \u683c\u5f0f\u3002")
         return
 
     temp_path = save_uploaded_file(uploaded_file)
     try:
         with st.spinner("\u6b63\u5728\u6aa2\u67e5\u6587\u4ef6\u683c\u5f0f..."):
-            report = analyze_docx(temp_path)
+            if temp_path.suffix.lower() == ".pdf":
+                report = analyze_pdf(temp_path)
+            else:
+                report = analyze_docx(temp_path)
     finally:
         temp_path.unlink(missing_ok=True)
 

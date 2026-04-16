@@ -11,6 +11,7 @@ from docx.enum.section import WD_SECTION_START
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.shared import Length, Pt
 from lxml import etree
+from pypdf import PdfReader
 
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 
@@ -649,6 +650,7 @@ def analyze_docx(docx_path: str | Path) -> dict:
     severity_rank = {"error": 0, "warning": 1, "info": 2}
     issues_sorted = sorted(issues, key=lambda item: (severity_rank.get(item.severity, 9), item.category, item.location or ""))
     return {
+        "file_type": "docx",
         "file_name": path.name,
         "summary": {
             "errors": sum(1 for item in issues_sorted if item.severity == "error"),
@@ -660,5 +662,167 @@ def analyze_docx(docx_path: str | Path) -> dict:
         "coverage": coverage,
         "section_results": section_results,
         "paragraph_results": paragraph_results,
+        "issues": [asdict(item) for item in issues_sorted],
+    }
+
+
+def detect_pdf_page_label(page_text: str) -> str | None:
+    lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    candidates = lines[-3:]
+    roman_pattern = re.compile(r"^[ivxlcdmIVXLCDM]+$")
+    arabic_pattern = re.compile(r"^\d{1,4}$")
+    for candidate in reversed(candidates):
+        if arabic_pattern.match(candidate) or roman_pattern.match(candidate):
+            return candidate
+    return None
+
+
+def analyze_pdf(pdf_path: str | Path) -> dict:
+    path = Path(pdf_path)
+    reader = PdfReader(str(path))
+    issues: list[Issue] = []
+    page_results = []
+    detected_labels: list[str] = []
+    total_lines = 0
+
+    found_abstract = False
+    found_catalog = False
+    found_reference = False
+    found_chapter = False
+
+    for idx, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        total_lines += len(lines)
+        page_label = detect_pdf_page_label(text)
+        if page_label:
+            detected_labels.append(page_label)
+
+        joined = " ".join(lines[:40])
+        if "\u6458\u8981" in joined or "ABSTRACT" in joined:
+            found_abstract = True
+        if "\u76ee\u9304" in joined:
+            found_catalog = True
+        if "\u53c3\u8003\u6587\u737b" in joined:
+            found_reference = True
+        if re.search(r"\u7b2c[\u4e00-\u9fff0-9]+\u7ae0", joined):
+            found_chapter = True
+
+        page_results.append(
+            {
+                "\u5be6\u9ad4\u9801": idx,
+                "\u9801\u5c3e\u9801\u78bc\u7dda\u7d22": page_label or "\u672a\u5075\u6e2c\u5230",
+                "\u53ef\u64f7\u53d6\u884c\u6578": len(lines),
+                "\u5167\u5bb9\u9810\u89bd": joined[:120],
+            }
+        )
+
+        if not lines:
+            issues.append(
+                Issue(
+                    severity="warning",
+                    category="\u9801\u9762\u5167\u5bb9",
+                    title=f"\u5be6\u9ad4\u7b2c {idx} \u9801\u7121\u6cd5\u64f7\u53d6\u6587\u5b57",
+                    details="\u9019\u4e00\u9801\u53ef\u80fd\u662f\u63c3\u63cf PDF\uff0c\u6216\u6587\u5b57\u5c64\u4e0d\u5b8c\u6574\uff0c\u56e0\u6b64\u7121\u6cd5\u9032\u884c\u7d30\u90e8\u683c\u5f0f\u6aa2\u67e5\u3002",
+                    location=f"\u5be6\u9ad4\u7b2c {idx} \u9801",
+                    suggestion="\u82e5\u8981\u505a\u66f4\u7cbe\u6e96\u7684\u683c\u5f0f\u6aa2\u67e5\uff0c\u8acb\u76e1\u91cf\u4e0a\u50b3 DOCX\uff0c\u6216\u78ba\u8a8d PDF \u5177\u6709\u53ef\u64f7\u53d6\u7684\u6587\u5b57\u5c64\u3002",
+                )
+            )
+
+    if not detected_labels:
+        issues.append(
+            Issue(
+                severity="warning",
+                category="\u9801\u78bc",
+                title="\u672a\u5f9e PDF \u9801\u5c3e\u5075\u6e2c\u5230\u660e\u986f\u9801\u78bc",
+                details="\u76ee\u524d\u672a\u5728\u5404\u9801\u5e95\u90e8\u6587\u5b57\u7dda\u7d22\u4e2d\u5075\u6e2c\u5230\u7a69\u5b9a\u7684\u9801\u78bc\u503c\u3002",
+                suggestion="\u82e5 PDF \u6709\u986f\u793a\u9801\u78bc\uff0c\u4f46\u4ecd\u7121\u6cd5\u5075\u6e2c\uff0c\u53ef\u80fd\u662f\u63c3\u63cf\u6216\u7279\u6b8a\u5b57\u578b\u9020\u6210\u3002",
+            )
+        )
+
+    if not found_catalog:
+        issues.append(
+            Issue(
+                severity="info",
+                category="\u7d50\u69cb\u7dda\u7d22",
+                title="\u672a\u660e\u78ba\u5075\u6e2c\u5230\u300c\u76ee\u9304\u300d\u5167\u5bb9",
+                details="PDF \u6587\u5b57\u64f7\u53d6\u7d50\u679c\u4e2d\u672a\u660e\u78ba\u627e\u5230\u300c\u76ee\u9304\u300d\u95dc\u9375\u5b57\u3002",
+            )
+        )
+    if not found_abstract:
+        issues.append(
+            Issue(
+                severity="info",
+                category="\u7d50\u69cb\u7dda\u7d22",
+                title="\u672a\u660e\u78ba\u5075\u6e2c\u5230\u6458\u8981\u9801\u7dda\u7d22",
+                details="PDF \u6587\u5b57\u64f7\u53d6\u7d50\u679c\u4e2d\u672a\u660e\u78ba\u627e\u5230\u300c\u6458\u8981\u300d\u6216\u300cABSTRACT\u300d\u3002",
+            )
+        )
+    if not found_reference:
+        issues.append(
+            Issue(
+                severity="info",
+                category="\u7d50\u69cb\u7dda\u7d22",
+                title="\u672a\u660e\u78ba\u5075\u6e2c\u5230\u53c3\u8003\u6587\u737b\u7dda\u7d22",
+                details="PDF \u6587\u5b57\u64f7\u53d6\u7d50\u679c\u4e2d\u672a\u660e\u78ba\u627e\u5230\u300c\u53c3\u8003\u6587\u737b\u300d\u3002",
+            )
+        )
+    if not found_chapter:
+        issues.append(
+            Issue(
+                severity="info",
+                category="\u7d50\u69cb\u7dda\u7d22",
+                title="\u672a\u660e\u78ba\u5075\u6e2c\u5230\u7ae0\u7bc0\u6a19\u984c\u7dda\u7d22",
+                details="PDF \u6587\u5b57\u64f7\u53d6\u7d50\u679c\u4e2d\u672a\u660e\u78ba\u627e\u5230\u300c\u7b2cX\u7ae0\u300d\u6a23\u5f0f\u7684\u7ae0\u7bc0\u6a19\u984c\u3002",
+            )
+        )
+
+    severity_rank = {"error": 0, "warning": 1, "info": 2}
+    issues_sorted = sorted(
+        issues,
+        key=lambda item: (severity_rank.get(item.severity, 9), item.category, item.location or ""),
+    )
+
+    page_label_format = "\u672a\u78ba\u5b9a"
+    if detected_labels:
+        if any(re.fullmatch(r"[ivxlcdmIVXLCDM]+", value) for value in detected_labels):
+            page_label_format = "\u7f85\u99ac\u6578\u5b57\u6216\u6df7\u5408"
+        elif all(re.fullmatch(r"\d{1,4}", value) for value in detected_labels):
+            page_label_format = "\u963f\u62c9\u4f2f\u6578\u5b57"
+
+    return {
+        "file_type": "pdf",
+        "file_name": path.name,
+        "summary": {
+            "errors": sum(1 for item in issues_sorted if item.severity == "error"),
+            "warnings": sum(1 for item in issues_sorted if item.severity == "warning"),
+            "infos": sum(1 for item in issues_sorted if item.severity == "info"),
+            "checked_items": [
+                "PDF \u9801\u6578",
+                "\u9801\u5c3e\u9801\u78bc\u7dda\u7d22",
+                "\u53ef\u64f7\u53d6\u6587\u5b57\u5167\u5bb9",
+                "\u6458\u8981\u8207 ABSTRACT \u7dda\u7d22",
+                "\u76ee\u9304\u7dda\u7d22",
+                "\u7ae0\u7bc0\u6a19\u984c\u7dda\u7d22",
+                "\u53c3\u8003\u6587\u737b\u7dda\u7d22",
+            ],
+            "limitations": [
+                "PDF \u7121\u6cd5\u50cf DOCX \u4e00\u6a23\u7cbe\u6e96\u53d6\u5f97 Word \u6a23\u5f0f\uff0c\u56e0\u6b64\u7121\u6cd5\u5b8c\u6574\u6aa2\u67e5\u5b57\u578b\uff0c\u7c97\u9ad4\uff0c\u5c0d\u9f4a\u8207\u884c\u8ddd\u7b49\u7d30\u7bc0\u3002",
+                "\u82e5 PDF \u70ba\u63c3\u63cf\u6a94\u6216\u5b57\u578b\u5d4c\u5165\u7279\u6b8a\uff0c\u6587\u5b57\u8207\u9801\u78bc\u53ef\u80fd\u7121\u6cd5\u88ab\u6b63\u78ba\u64f7\u53d6\u3002",
+                "PDF \u6a21\u5f0f\u8f03\u9069\u5408\u505a\u7d50\u69cb\u8207\u5167\u5bb9\u7dda\u7d22\u6aa2\u67e5\uff0c\u82e5\u8981\u505a\u683c\u5f0f\u7d1a\u5225\u7684\u7cbe\u6e96\u6bd4\u5c0d\uff0c\u5efa\u8b70\u4e0a\u50b3 DOCX\u3002",
+            ],
+        },
+        "coverage": {
+            "paragraph_count": total_lines,
+            "section_count": len(reader.pages),
+            "page_number": {"present": bool(detected_labels), "format": page_label_format},
+            "watermark": False,
+            "protection": {"enabled": False, "mode": "\u4e0d\u9069\u7528"},
+            "page_count": len(reader.pages),
+        },
+        "section_results": page_results,
+        "paragraph_results": [],
         "issues": [asdict(item) for item in issues_sorted],
     }

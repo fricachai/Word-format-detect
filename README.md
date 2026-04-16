@@ -1,6 +1,6 @@
 # Thesis DOCX Format Checker
 
-This project reads the thesis-format PDF specification and checks uploaded `.docx` files against the parts that can be inspected programmatically.
+This project reads the thesis-format PDF specification and checks uploaded `.docx` and `.pdf` thesis files against the parts that can be inspected programmatically.
 
 It reports:
 
@@ -11,6 +11,8 @@ It reports:
 
 ## Current coverage
 
+- DOCX upload and checking
+- PDF upload and basic structural checking
 - A4 page size
 - margins: top 2.5 cm, bottom 2.5 cm, left 3 cm, right 2 cm
 - chapter heading format
@@ -18,7 +20,7 @@ It reports:
 - abstract and keyword checks
 - body font and body size checks
 - 1.5 line spacing checks
-- page-number field detection
+- page-number field detection or PDF page-label clues
 - watermark-object detection
 - Word protection detection
 
@@ -28,6 +30,7 @@ It reports:
 - Watermark checks only detect watermark-like objects in the package.
 - Theme- or style-inherited fonts may not always appear at run level.
 - Paper weight, duplex printing, and final PDF security still need manual review.
+- PDF mode is more limited than DOCX mode because PDF files do not preserve Word styles in the same way.
 
 ## Run locally with Streamlit
 
