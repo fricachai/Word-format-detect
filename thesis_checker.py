@@ -507,6 +507,15 @@ def classify_paragraph(text: str) -> str:
     return "內文"
 
 
+def is_catalog_chapter_entry(text: str) -> bool:
+    normalized = re.sub(r"\s+", "", text)
+    if not normalized:
+        return False
+    if not CHAPTER_PATTERN.match(normalized):
+        return False
+    return "." in text or "\t" in text or "…" in text or "..." in text or "．" in text
+
+
 def add_issue(
     issues: list[Issue],
     severity: str,
@@ -553,12 +562,17 @@ def analyze_sections(document: Document, issues: list[Issue]) -> list[dict]:
 def check_paragraphs(document: Document, issues: list[Issue], page_map: dict[int, str]) -> list[dict]:
     paragraph_summaries = []
     in_abstract = False
+    in_catalog = False
     for index, paragraph, text in visible_paragraphs(document):
         kind = classify_paragraph(text)
-        if kind == "abstract_heading":
+        if kind == "摘要標題":
             in_abstract = True
         elif kind in {"章標題", "前置標題"} and text != "\u6458\u8981":
             in_abstract = False
+        if text == "\u76ee\u9304":
+            in_catalog = True
+        elif kind == "章標題" and not is_catalog_chapter_entry(text):
+            in_catalog = False
         fonts = paragraph_fonts(paragraph)
         sizes = paragraph_sizes(paragraph)
         effective_alignment = effective_paragraph_alignment_name(document, paragraph)
@@ -567,6 +581,16 @@ def check_paragraphs(document: Document, issues: list[Issue], page_map: dict[int
         page_number = page_map.get(index)
         location = f"\u7b2c {page_number} \u9801" if page_number else f"\u7b2c {index} \u6bb5"
         paragraph_summaries.append({"頁碼": page_number or "\u7121\u6cd5\u5224\u5b9a", "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
+        if in_catalog and is_catalog_chapter_entry(text):
+            if not effective_paragraph_bold(document, paragraph):
+                add_issue(issues, "error", "\u76ee\u9304\u9801\u683c\u5f0f", f"{location}\u7684\u76ee\u9304\u7ae0\u9805\u76ee\u672a\u8a2d\u70ba\u7c97\u9ad4", f"\u5075\u6e2c\u5230\u7684\u76ee\u9304\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u76ee\u9304\u4e2d\u7684\u7ae0\u9805\u76ee\u8acb\u8a2d\u70ba 12 pt \u7c97\u9ad4\u3002")
+            if sizes and 12.0 not in sizes:
+                add_issue(issues, "error", "\u76ee\u9304\u9801\u683c\u5f0f", f"{location}\u7684\u76ee\u9304\u7ae0\u9805\u76ee\u4e0d\u662f 12 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes)}\u3002", location, "\u76ee\u9304\u4e2d\u7684\u7ae0\u9805\u76ee\u8acb\u8a2d\u70ba 12 pt \u7c97\u9ad4\u3002")
+            elif not sizes:
+                add_issue(issues, "warning", "\u76ee\u9304\u9801\u683c\u5f0f", f"{location}\u7684\u76ee\u9304\u7ae0\u9805\u76ee\u5b57\u7d1a\u7121\u6cd5\u660e\u78ba\u5224\u5b9a", f"\u5075\u6e2c\u5230\u7684\u76ee\u9304\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u8acb\u78ba\u8a8d\u76ee\u9304\u4e2d\u7684\u7ae0\u9805\u76ee\u70ba 12 pt \u7c97\u9ad4\u3002")
+            if alignment not in {"\u5de6\u53f3\u5c0d\u9f4a", "\u5206\u6563\u5c0d\u9f4a"}:
+                add_issue(issues, "error", "\u76ee\u9304\u9801\u683c\u5f0f", f"{location}\u7684\u76ee\u9304\u7ae0\u9805\u76ee\u672a\u5de6\u53f3\u5c0d\u9f4a", f"\u5075\u6e2c\u5230\u7684\u5c0d\u9f4a\u65b9\u5f0f\u70ba\u300c{alignment}\u300d\u3002", location, "\u76ee\u9304\u4e2d\u7684\u7ae0\u9805\u76ee\u8acb\u8a2d\u70ba\u5de6\u53f3\u5c0d\u9f4a\u3002")
+            continue
         if kind == "章標題":
             if alignment not in {"\u7f6e\u4e2d", "\u7591\u4f3c\u4ee5 Tab \u505a\u8996\u89ba\u7f6e\u4e2d"}:
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u672a\u7f6e\u4e2d", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\uff0c\u5c0d\u9f4a\u65b9\u5f0f\u70ba\u300c{alignment}\u300d\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba\u7f6e\u4e2d\u3002")
