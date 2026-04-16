@@ -56,13 +56,13 @@ def pt_value(value) -> float | None:
 
 def alignment_name(value: int | None) -> str:
     mapping = {
-        WD_ALIGN_PARAGRAPH.LEFT: "left",
-        WD_ALIGN_PARAGRAPH.CENTER: "center",
-        WD_ALIGN_PARAGRAPH.RIGHT: "right",
-        WD_ALIGN_PARAGRAPH.JUSTIFY: "justify",
-        WD_ALIGN_PARAGRAPH.DISTRIBUTE: "distribute",
+        WD_ALIGN_PARAGRAPH.LEFT: "\u9760\u5de6\u5c0d\u9f4a",
+        WD_ALIGN_PARAGRAPH.CENTER: "\u7f6e\u4e2d",
+        WD_ALIGN_PARAGRAPH.RIGHT: "\u9760\u53f3\u5c0d\u9f4a",
+        WD_ALIGN_PARAGRAPH.JUSTIFY: "\u5de6\u53f3\u5c0d\u9f4a",
+        WD_ALIGN_PARAGRAPH.DISTRIBUTE: "\u5206\u6563\u5c0d\u9f4a",
     }
-    return mapping.get(value, "unspecified")
+    return mapping.get(value, "\u672a\u6307\u5b9a")
 
 
 def paragraph_text(paragraph) -> str:
@@ -124,17 +124,17 @@ def contains_ascii_letters_or_digits(text: str) -> bool:
 def paragraph_line_spacing(paragraph) -> tuple[str, float | None]:
     fmt = paragraph.paragraph_format
     if fmt.line_spacing_rule == WD_LINE_SPACING.ONE_POINT_FIVE:
-        return "1.5 lines", 1.5
+        return "1.5 \u500d\u884c\u9ad8", 1.5
     if isinstance(fmt.line_spacing, Pt):
-        return "exact", round(fmt.line_spacing.pt, 1)
+        return "\u56fa\u5b9a\u503c", round(fmt.line_spacing.pt, 1)
     if isinstance(fmt.line_spacing, float):
-        return "multiple", round(float(fmt.line_spacing), 2)
+        return "\u591a\u500d\u884c\u8ddd", round(float(fmt.line_spacing), 2)
     if fmt.line_spacing is not None:
         try:
-            return "multiple", round(float(fmt.line_spacing), 2)
+            return "\u591a\u500d\u884c\u8ddd", round(float(fmt.line_spacing), 2)
         except Exception:
-            return "set", None
-    return "unspecified", None
+            return "\u5df2\u8a2d\u5b9a", None
+    return "\u672a\u6307\u5b9a", None
 
 
 def is_bold_paragraph(paragraph) -> bool:
@@ -164,16 +164,16 @@ def parse_xml(data: bytes | None):
 def page_number_info(docx_path: Path) -> dict[str, str | bool]:
     footer_files = list_docx_members(docx_path, "word/footer")
     if not footer_files:
-        return {"present": False, "format": "none"}
+        return {"present": False, "format": "\u7121"}
     found = False
-    page_format = "arabic"
+    page_format = "\u963f\u62c9\u4f2f\u6578\u5b57"
     for member in footer_files:
         text = (extract_docx_xml(docx_path, member) or b"").decode("utf-8", errors="ignore")
         if "PAGE" in text:
             found = True
             if "ROMAN" in text:
-                page_format = "roman"
-    return {"present": found, "format": page_format if found else "none"}
+                page_format = "\u7f85\u99ac\u6578\u5b57"
+    return {"present": found, "format": page_format if found else "\u7121"}
 
 
 def has_watermark(docx_path: Path) -> bool:
@@ -187,27 +187,27 @@ def has_watermark(docx_path: Path) -> bool:
 def document_protection(docx_path: Path) -> dict[str, str | bool]:
     settings_xml = parse_xml(extract_docx_xml(docx_path, "word/settings.xml"))
     if settings_xml is None:
-        return {"enabled": False, "mode": "unknown"}
+        return {"enabled": False, "mode": "\u672a\u77e5"}
     protection = settings_xml.find("w:documentProtection", namespaces=WORD_NS)
     if protection is None:
-        return {"enabled": False, "mode": "none"}
-    edit_mode = protection.get(f"{{{WORD_NS['w']}}}edit", "unknown")
+        return {"enabled": False, "mode": "\u7121"}
+    edit_mode = protection.get(f"{{{WORD_NS['w']}}}edit", "\u672a\u77e5")
     enforcement = protection.get(f"{{{WORD_NS['w']}}}enforcement", "0") == "1"
     return {"enabled": enforcement, "mode": edit_mode}
 
 
 def classify_paragraph(text: str) -> str:
     if text in ABSTRACT_HEADINGS:
-        return "abstract_heading"
+        return "摘要標題"
     if text in FRONT_HEADINGS:
-        return "front_heading"
+        return "前置標題"
     if CHAPTER_PATTERN.match(text):
-        return "chapter_heading"
+        return "章標題"
     if SECTION_PATTERN.match(text):
-        return "section_heading"
+        return "節標題"
     if any(text.startswith(prefix) for prefix in KEYWORD_PREFIXES):
-        return "keywords"
-    return "body"
+        return "關鍵字"
+    return "內文"
 
 
 def add_issue(
@@ -244,12 +244,12 @@ def analyze_sections(document: Document, issues: list[Issue]) -> list[dict]:
             }
         )
         if (page_width, page_height) != (21.0, 29.7):
-            add_issue(issues, "error", "Page layout", f"Section {idx} is not A4 size", f"Detected {page_width} x {page_height} cm. The spec requires A4 21.0 x 29.7 cm.", f"Section {idx}", "Change the section page size to A4 in Word.")
-        for side, expected_value, current in (("top", 2.5, top), ("bottom", 2.5, bottom), ("left", 3.0, left), ("right", 2.0, right)):
+            add_issue(issues, "error", "\u7248\u9762\u8a2d\u5b9a", f"\u7b2c {idx} \u7bc0\u4e0d\u662f A4 \u7d19\u5f35", f"\u76ee\u524d\u5075\u6e2c\u70ba {page_width} x {page_height} \u516c\u5206\uff0c\u898f\u7bc4\u8981\u6c42 A4 21.0 x 29.7 \u516c\u5206\u3002", f"\u7b2c {idx} \u7bc0", "\u8acb\u5728 Word \u5c07\u9019\u4e00\u7bc0\u7684\u7d19\u5f35\u5927\u5c0f\u8abf\u6574\u70ba A4\u3002")
+        for side, expected_value, current in (("\u4e0a", 2.5, top), ("\u4e0b", 2.5, bottom), ("\u5de6", 3.0, left), ("\u53f3", 2.0, right)):
             if current is None or abs(current - expected_value) > 0.11:
-                add_issue(issues, "error", "Page layout", f"Section {idx} {side} margin is out of spec", f"Detected {current} cm. The spec requires {expected_value} cm.", f"Section {idx}", "Adjust the page margins for this section.")
+                add_issue(issues, "error", "\u7248\u9762\u8a2d\u5b9a", f"\u7b2c {idx} \u7bc0\u7684{side}\u908a\u754c\u4e0d\u7b26\u898f\u7bc4", f"\u76ee\u524d\u5075\u6e2c\u70ba {current} \u516c\u5206\uff0c\u898f\u7bc4\u8981\u6c42 {expected_value} \u516c\u5206\u3002", f"\u7b2c {idx} \u7bc0", "\u8acb\u8abf\u6574\u9019\u4e00\u7bc0\u7684\u908a\u754c\u8a2d\u5b9a\u3002")
         if idx > 1 and section.start_type != WD_SECTION_START.NEW_PAGE:
-            add_issue(issues, "warning", "Section breaks", f"Section {idx} does not clearly start on a new page", "The spec expects major sections and chapters to begin on a new page.", f"Section {idx}", "Use a next-page section break for each chapter.")
+            add_issue(issues, "warning", "\u5206\u7bc0\u8d77\u59cb", f"\u7b2c {idx} \u7bc0\u672a\u660e\u78ba\u5f9e\u65b0\u9801\u958b\u59cb", "\u898f\u7bc4\u8981\u6c42\u4e3b\u8981\u7bc0\u8207\u7ae0\u7bc0\u61c9\u5f9e\u65b0\u9801\u958b\u59cb\u3002", f"\u7b2c {idx} \u7bc0", "\u8acb\u5c07\u8a72\u8655\u6539\u70ba\u300c\u4e0b\u4e00\u9801\u5206\u7bc0\u7b26\u865f\u300d\u3002")
     return results
 
 
@@ -260,45 +260,45 @@ def check_paragraphs(document: Document, issues: list[Issue]) -> list[dict]:
         kind = classify_paragraph(text)
         if kind == "abstract_heading":
             in_abstract = True
-        elif kind in {"chapter_heading", "front_heading"} and text != "\u6458\u8981":
+        elif kind in {"章標題", "前置標題"} and text != "\u6458\u8981":
             in_abstract = False
         fonts = paragraph_fonts(paragraph)
         sizes = paragraph_sizes(paragraph)
         alignment = alignment_name(paragraph.alignment)
         line_spacing_label, line_spacing_value = paragraph_line_spacing(paragraph)
-        location = f"Paragraph {index}"
-        paragraph_summaries.append({"index": index, "text": text[:120], "kind": kind, "fonts": sorted(fonts), "sizes": sorted(sizes), "alignment": alignment, "line_spacing": line_spacing_label})
-        if kind == "chapter_heading":
-            if alignment != "center":
-                add_issue(issues, "error", "Headings", f"{location} chapter heading is not centered", f'Detected heading text: "{text}". Alignment is {alignment}.', location, "Center the chapter heading.")
+        location = f"\u7b2c {index} \u6bb5"
+        paragraph_summaries.append({"段落序號": index, "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
+        if kind == "章標題":
+            if alignment != "\u7f6e\u4e2d":
+                add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u672a\u7f6e\u4e2d", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\uff0c\u5c0d\u9f4a\u65b9\u5f0f\u70ba\u300c{alignment}\u300d\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba\u7f6e\u4e2d\u3002")
             if not is_bold_paragraph(paragraph):
-                add_issue(issues, "error", "Headings", f"{location} chapter heading is not bold", f'Detected heading text: "{text}".', location, "Make the chapter heading bold.")
+                add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u672a\u8a2d\u70ba\u7c97\u9ad4", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba\u7c97\u9ad4\u3002")
             if 16.0 not in sizes:
-                add_issue(issues, "error", "Headings", f"{location} chapter heading is not 16 pt", f"Detected font sizes: {sorted(sizes) or 'not explicitly set'}.", location, "Set chapter heading size to 16 pt.")
-        elif kind == "section_heading":
+                add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u4e0d\u662f 16 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes) or '\u672a\u660e\u78ba\u8a2d\u5b9a'}\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba 16 pt\u3002")
+        elif kind == "節標題":
             if not is_bold_paragraph(paragraph):
-                add_issue(issues, "error", "Headings", f"{location} section heading is not bold", f'Detected heading text: "{text}".', location, "Make the section heading bold.")
+                add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7bc0\u6a19\u984c\u672a\u8a2d\u70ba\u7c97\u9ad4", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u8acb\u5c07\u7bc0\u6a19\u984c\u8a2d\u70ba\u7c97\u9ad4\u3002")
             if 14.0 not in sizes:
-                add_issue(issues, "error", "Headings", f"{location} section heading is not 14 pt", f"Detected font sizes: {sorted(sizes) or 'not explicitly set'}.", location, "Set section heading size to 14 pt.")
-        elif kind in {"abstract_heading", "front_heading"}:
-            if alignment != "center":
-                add_issue(issues, "warning", "Front matter", f"{location} front-matter heading is not centered", f'Detected heading text: "{text}". Alignment is {alignment}.', location, "Center the heading.")
-        elif kind == "keywords":
+                add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7bc0\u6a19\u984c\u4e0d\u662f 14 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes) or '\u672a\u660e\u78ba\u8a2d\u5b9a'}\u3002", location, "\u8acb\u5c07\u7bc0\u6a19\u984c\u8a2d\u70ba 14 pt\u3002")
+        elif kind in {"摘要標題", "前置標題"}:
+            if alignment != "\u7f6e\u4e2d":
+                add_issue(issues, "warning", "\u524d\u7f6e\u9801", f"{location}\u7684\u524d\u7f6e\u6a19\u984c\u672a\u7f6e\u4e2d", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\uff0c\u5c0d\u9f4a\u65b9\u5f0f\u70ba\u300c{alignment}\u300d\u3002", location, "\u8acb\u5c07\u6a19\u984c\u8abf\u6574\u70ba\u7f6e\u4e2d\u3002")
+        elif kind == "關鍵字":
             if 14.0 not in sizes:
-                add_issue(issues, "warning", "Abstract and keywords", f"{location} keyword paragraph is not 14 pt", f"Detected font sizes: {sorted(sizes) or 'not explicitly set'}.", location, "Set the keyword paragraph to 14 pt.")
+                add_issue(issues, "warning", "\u6458\u8981\u8207\u95dc\u9375\u5b57", f"{location}\u7684\u95dc\u9375\u5b57\u6bb5\u843d\u4e0d\u662f 14 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes) or '\u672a\u660e\u78ba\u8a2d\u5b9a'}\u3002", location, "\u8acb\u5c07\u95dc\u9375\u5b57\u6bb5\u843d\u8a2d\u70ba 14 pt\u3002")
         else:
-            if in_abstract or kind == "body":
+            if in_abstract or kind == "內文":
                 if contains_cjk(text) and fonts and not fonts.intersection(ALLOWED_CHINESE_FONTS):
-                    add_issue(issues, "warning", "Body font", f"{location} Chinese text may use the wrong font", f"Detected fonts: {', '.join(sorted(fonts))}. The spec expects DFKai-SB / BiauKai for Chinese body text.", location, "Change Chinese body text to BiauKai / DFKai-SB.")
+                    add_issue(issues, "warning", "\u5167\u6587\u5b57\u578b", f"{location}\u7684\u4e2d\u6587\u5167\u6587\u5b57\u578b\u53ef\u80fd\u4e0d\u7b26\u898f\u7bc4", f"\u5075\u6e2c\u5230\u7684\u5b57\u578b\u70ba {', '.join(sorted(fonts))}\uff0c\u898f\u7bc4\u5efa\u8b70\u4e2d\u6587\u5167\u6587\u4f7f\u7528\u6a19\u6977\u9ad4 / DFKai-SB\u3002", location, "\u8acb\u5c07\u4e2d\u6587\u5167\u6587\u8abf\u6574\u70ba\u6a19\u6977\u9ad4 / DFKai-SB\u3002")
                 if contains_ascii_letters_or_digits(text):
                     english_fonts = {run_font_name(run) for run in iter_runs_with_text(paragraph) if contains_ascii_letters_or_digits(run.text)}
                     english_fonts = {font for font in english_fonts if font}
                     if english_fonts and not english_fonts.issubset(ALLOWED_ENGLISH_FONTS):
-                        add_issue(issues, "warning", "English and numbers", f"{location} English or numeric text may use the wrong font", f"Detected fonts: {', '.join(sorted(english_fonts))}. The spec expects Times New Roman.", location, "Change English and numeric text to Times New Roman.")
+                        add_issue(issues, "warning", "\u82f1\u6587\u8207\u6578\u5b57", f"{location}\u7684\u82f1\u6587\u6216\u6578\u5b57\u5b57\u578b\u53ef\u80fd\u4e0d\u7b26\u898f\u7bc4", f"\u5075\u6e2c\u5230\u7684\u5b57\u578b\u70ba {', '.join(sorted(english_fonts))}\uff0c\u898f\u7bc4\u5efa\u8b70\u82f1\u6587\u8207\u6578\u5b57\u4f7f\u7528 Times New Roman\u3002", location, "\u8acb\u5c07\u82f1\u6587\u8207\u6578\u5b57\u8abf\u6574\u70ba Times New Roman\u3002")
                 if sizes and 12.0 not in sizes:
-                    add_issue(issues, "warning", "Body size", f"{location} body text is not 12 pt", f"Detected font sizes: {sorted(sizes)}. The spec expects 12 pt body text.", location, "Set body text to 12 pt.")
+                    add_issue(issues, "warning", "\u5167\u6587\u5b57\u7d1a", f"{location}\u7684\u5167\u6587\u4e0d\u662f 12 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes)}\uff0c\u898f\u7bc4\u8981\u6c42\u5167\u6587\u70ba 12 pt\u3002", location, "\u8acb\u5c07\u5167\u6587\u8abf\u6574\u70ba 12 pt\u3002")
                 if line_spacing_value is None or abs(line_spacing_value - 1.5) > 0.05:
-                    add_issue(issues, "warning", "Line spacing", f"{location} is not using 1.5 line spacing", f"Detected line spacing: {line_spacing_label} {line_spacing_value or ''}".strip(), location, "Set abstract and body paragraphs to 1.5 line spacing.")
+                    add_issue(issues, "warning", "\u884c\u8ddd", f"{location}\u672a\u4f7f\u7528 1.5 \u500d\u884c\u9ad8", f"\u5075\u6e2c\u5230\u7684\u884c\u8ddd\u70ba {line_spacing_label} {line_spacing_value or ''}".strip(), location, "\u8acb\u5c07\u6458\u8981\u8207\u5167\u6587\u6bb5\u843d\u8abf\u6574\u70ba 1.5 \u500d\u884c\u9ad8\u3002")
     return paragraph_summaries
 
 
@@ -307,11 +307,11 @@ def summarize_document(document: Document, docx_path: Path, issues: list[Issue])
     watermark = has_watermark(docx_path)
     protection = document_protection(docx_path)
     if not page_number["present"]:
-        add_issue(issues, "warning", "Page numbers", "No page-number field was detected", "The spec requires centered Roman page numbers for front matter and Arabic page numbers for the main body. No PAGE field was found in footer XML.", suggestion="Insert Word page-number fields in the footer and split front matter from the main body.")
+        add_issue(issues, "warning", "\u9801\u78bc", "\u672a\u5075\u6e2c\u5230\u9801\u78bc\u6b04\u4f4d", "\u898f\u7bc4\u8981\u6c42\u524d\u7f6e\u9801\u4f7f\u7528\u7f85\u99ac\u6578\u5b57\u9801\u78bc\uff0c\u6b63\u6587\u4f7f\u7528\u963f\u62c9\u4f2f\u6578\u5b57\u9801\u78bc\uff0c\u4f46\u76ee\u524d\u5728 footer XML \u4e2d\u672a\u627e\u5230 PAGE \u6b04\u4f4d\u3002", suggestion="\u8acb\u5728 Word \u9801\u5c3e\u63d2\u5165\u9801\u78bc\uff0c\u4e26\u5206\u5225\u8a2d\u5b9a\u524d\u7f6e\u9801\u8207\u6b63\u6587\u7684\u9801\u78bc\u683c\u5f0f\u3002")
     if not watermark:
-        add_issue(issues, "warning", "Watermark", "No watermark object was detected", "The spec requires a watermark from the acknowledgements page onward. This tool can only detect whether watermark-like objects exist in the DOCX package.", suggestion="Check section headers in Word and confirm the watermark starts from the acknowledgements page.")
+        add_issue(issues, "warning", "\u6d6e\u6c34\u5370", "\u672a\u5075\u6e2c\u5230\u6d6e\u6c34\u5370\u7269\u4ef6", "\u898f\u7bc4\u8981\u6c42\u5f9e\u81f4\u8b1d\u9801\u958b\u59cb\u52a0\u5165\u6d6e\u6c34\u5370\uff0c\u4f46\u6b64\u5de5\u5177\u53ea\u80fd\u6aa2\u67e5 DOCX \u5167\u662f\u5426\u5b58\u5728\u985e\u4f3c\u6d6e\u6c34\u5370\u7684\u7269\u4ef6\u3002", suggestion="\u8acb\u5728 Word \u4e2d\u6aa2\u67e5\u5404\u7bc0 header\uff0c\u78ba\u8a8d\u6d6e\u6c34\u5370\u662f\u5426\u5f9e\u81f4\u8b1d\u9801\u958b\u59cb\u3002")
     if not protection["enabled"]:
-        add_issue(issues, "info", "Protection", "No Word document protection was detected", "The library spec mentions document security, but that requirement often applies to the final upload file or PDF. No enabled documentProtection node was found in this DOCX.", suggestion="If the school expects PDF security settings, confirm them after exporting the final file.")
+        add_issue(issues, "info", "\u4fdd\u8b77\u8a2d\u5b9a", "\u672a\u5075\u6e2c\u5230 Word \u6587\u4ef6\u4fdd\u8b77", "\u5716\u66f8\u9928\u898f\u7bc4\u6709\u63d0\u5230\u6587\u4ef6\u4fdd\u5168\uff0c\u4f46\u9019\u9805\u8981\u6c42\u5e38\u5e38\u5957\u7528\u5728\u6700\u7d42\u4e0a\u50b3\u6a94\u6216 PDF\u3002\u76ee\u524d\u9019\u4efd DOCX \u5167\u672a\u627e\u5230\u5df2\u555f\u7528\u7684 documentProtection \u8a2d\u5b9a\u3002", suggestion="\u82e5\u5b78\u6821\u8981\u6c42 PDF \u4fdd\u8b77\uff0c\u8acb\u5728\u532f\u51fa\u6700\u7d42 PDF \u5f8c\u518d\u884c\u78ba\u8a8d\u3002")
     return {"paragraph_count": len(document.paragraphs), "section_count": len(document.sections), "page_number": page_number, "watermark": watermark, "protection": protection}
 
 
@@ -330,8 +330,8 @@ def analyze_docx(docx_path: str | Path) -> dict:
             "errors": sum(1 for item in issues_sorted if item.severity == "error"),
             "warnings": sum(1 for item in issues_sorted if item.severity == "warning"),
             "infos": sum(1 for item in issues_sorted if item.severity == "info"),
-            "checked_items": ["A4 page size", "Page margins", "Chapter heading format", "Section heading format", "Abstract and keywords", "Body font and size", "1.5 line spacing", "Page-number fields", "Watermark existence", "Word protection existence"],
-            "limitations": ["DOCX analysis cannot fully reconstruct final pagination, so odd-page chapter starts cannot be guaranteed.", "Watermark checks only verify that watermark-like objects exist in the DOCX package.", "If fonts are inherited only from styles or themes, the tool may need to make conservative guesses.", "Paper weight, duplex printing, and final PDF security still need manual review."],
+            "checked_items": ["A4 \u7d19\u5f35\u5927\u5c0f", "\u9801\u9762\u908a\u754c", "\u7ae0\u6a19\u984c\u683c\u5f0f", "\u7bc0\u6a19\u984c\u683c\u5f0f", "\u6458\u8981\u8207\u95dc\u9375\u5b57", "\u5167\u6587\u5b57\u578b\u8207\u5b57\u7d1a", "1.5 \u500d\u884c\u9ad8", "\u9801\u78bc\u6b04\u4f4d", "\u6d6e\u6c34\u5370\u5b58\u5728\u6027", "Word \u4fdd\u8b77\u8a2d\u5b9a"],
+            "limitations": ["DOCX \u5206\u6790\u7121\u6cd5\u5b8c\u6574\u9084\u539f\u6700\u7d42\u5206\u9801\uff0c\u56e0\u6b64\u7121\u6cd5\u4fdd\u8b49\u6bcf\u7ae0\u90fd\u843d\u5728\u5947\u6578\u9801\u3002", "\u6d6e\u6c34\u5370\u6aa2\u67e5\u53ea\u80fd\u78ba\u8a8d DOCX \u5167\u662f\u5426\u5b58\u5728\u985e\u4f3c\u6d6e\u6c34\u5370\u7684\u7269\u4ef6\u3002", "\u82e5\u5b57\u578b\u50c5\u7531\u6a23\u5f0f\u6216\u4e3b\u984c\u7e7c\u627f\uff0c\u5de5\u5177\u53ef\u80fd\u9700\u8981\u505a\u8f03\u4fdd\u5b88\u7684\u5224\u65b7\u3002", "\u7d19\u5f35\u78c5\u6578\uff0c\u96d9\u9762\u5217\u5370\u8207\u6700\u7d42 PDF \u4fdd\u5168\u8a2d\u5b9a\u4ecd\u9700\u8981\u4eba\u5de5\u78ba\u8a8d\u3002"],
         },
         "coverage": coverage,
         "section_results": section_results,
