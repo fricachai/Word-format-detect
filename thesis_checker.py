@@ -95,6 +95,55 @@ def iter_runs_with_text(paragraph) -> Iterable:
             yield run
 
 
+def iter_style_chain(style) -> Iterable:
+    current = style
+    while current is not None:
+        yield current
+        current = getattr(current, "base_style", None)
+
+
+def effective_paragraph_alignment(paragraph) -> int | None:
+    if paragraph.alignment is not None:
+        return paragraph.alignment
+    style = getattr(paragraph, "style", None)
+    for current_style in iter_style_chain(style):
+        alignment = current_style.paragraph_format.alignment
+        if alignment is not None:
+            return alignment
+    return None
+
+
+def effective_run_bold(run) -> bool | None:
+    if run.bold is not None:
+        return run.bold
+    style = getattr(run, "style", None)
+    for current_style in iter_style_chain(style):
+        if current_style.font.bold is not None:
+            return current_style.font.bold
+    return None
+
+
+def effective_paragraph_bold(paragraph) -> bool:
+    runs = list(iter_runs_with_text(paragraph))
+    if not runs:
+        return False
+    bold_votes = 0
+    known_votes = 0
+    for run in runs:
+        bold = effective_run_bold(run)
+        if bold is not None:
+            known_votes += 1
+            if bold:
+                bold_votes += 1
+    if known_votes:
+        return bold_votes >= max(1, known_votes // 2)
+    style = getattr(paragraph, "style", None)
+    for current_style in iter_style_chain(style):
+        if current_style.font.bold is not None:
+            return current_style.font.bold
+    return False
+
+
 def paragraph_fonts(paragraph) -> set[str]:
     return {
         font
@@ -135,13 +184,6 @@ def paragraph_line_spacing(paragraph) -> tuple[str, float | None]:
         except Exception:
             return "\u5df2\u8a2d\u5b9a", None
     return "\u672a\u6307\u5b9a", None
-
-
-def is_bold_paragraph(paragraph) -> bool:
-    runs = list(iter_runs_with_text(paragraph))
-    if not runs:
-        return False
-    return sum(1 for run in runs if run.bold) >= max(1, len(runs) // 2)
 
 
 def extract_docx_xml(docx_path: Path, member: str) -> bytes | None:
@@ -264,19 +306,19 @@ def check_paragraphs(document: Document, issues: list[Issue]) -> list[dict]:
             in_abstract = False
         fonts = paragraph_fonts(paragraph)
         sizes = paragraph_sizes(paragraph)
-        alignment = alignment_name(paragraph.alignment)
+        alignment = alignment_name(effective_paragraph_alignment(paragraph))
         line_spacing_label, line_spacing_value = paragraph_line_spacing(paragraph)
         location = f"\u7b2c {index} \u6bb5"
         paragraph_summaries.append({"段落序號": index, "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
         if kind == "章標題":
             if alignment != "\u7f6e\u4e2d":
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u672a\u7f6e\u4e2d", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\uff0c\u5c0d\u9f4a\u65b9\u5f0f\u70ba\u300c{alignment}\u300d\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba\u7f6e\u4e2d\u3002")
-            if not is_bold_paragraph(paragraph):
+            if not effective_paragraph_bold(paragraph):
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u672a\u8a2d\u70ba\u7c97\u9ad4", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba\u7c97\u9ad4\u3002")
             if 16.0 not in sizes:
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u4e0d\u662f 16 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes) or '\u672a\u660e\u78ba\u8a2d\u5b9a'}\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba 16 pt\u3002")
         elif kind == "節標題":
-            if not is_bold_paragraph(paragraph):
+            if not effective_paragraph_bold(paragraph):
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7bc0\u6a19\u984c\u672a\u8a2d\u70ba\u7c97\u9ad4", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u8acb\u5c07\u7bc0\u6a19\u984c\u8a2d\u70ba\u7c97\u9ad4\u3002")
             if 14.0 not in sizes:
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7bc0\u6a19\u984c\u4e0d\u662f 14 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes) or '\u672a\u660e\u78ba\u8a2d\u5b9a'}\u3002", location, "\u8acb\u5c07\u7bc0\u6a19\u984c\u8a2d\u70ba 14 pt\u3002")
