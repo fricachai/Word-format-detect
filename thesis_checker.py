@@ -732,8 +732,6 @@ def check_paragraphs(
 
         paragraph_summaries.append({"頁碼": page_number or "\u7121\u6cd5\u5224\u5b9a", "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
         if catalog_chapter_like:
-            if not effective_catalog_heading_bold(document, paragraph):
-                add_issue(issues, "error", "\u76ee\u9304\u9801\u683c\u5f0f", f"{location}\u7684\u76ee\u9304\u7ae0\u9805\u76ee\u672a\u8a2d\u70ba\u7c97\u9ad4", f"\u5075\u6e2c\u5230\u7684\u76ee\u9304\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u76ee\u9304\u4e2d\u7684\u7ae0\u9805\u76ee\u8acb\u8a2d\u70ba 12 pt \u7c97\u9ad4\u3002")
             if sizes and 12.0 not in sizes:
                 add_issue(issues, "error", "\u76ee\u9304\u9801\u683c\u5f0f", f"{location}\u7684\u76ee\u9304\u7ae0\u9805\u76ee\u4e0d\u662f 12 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes)}\u3002", location, "\u76ee\u9304\u4e2d\u7684\u7ae0\u9805\u76ee\u8acb\u8a2d\u70ba 12 pt \u7c97\u9ad4\u3002")
             elif not sizes:
