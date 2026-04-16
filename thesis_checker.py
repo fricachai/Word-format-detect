@@ -269,6 +269,33 @@ def effective_paragraph_bold(document: Document, paragraph) -> bool:
     return bool(paragraph_level)
 
 
+def run_style_size(document: Document, run) -> float | None:
+    for style_element in iter_style_elements(document, style_id_from_run(run)):
+        rpr = style_element.find("w:rPr", namespaces=WORD_NS)
+        sz = rpr.find("w:sz", namespaces=WORD_NS) if rpr is not None else None
+        if sz is not None:
+            value = sz.get(f"{{{WORD_NS['w']}}}val")
+            if value and value.isdigit():
+                return round(int(value) / 2, 1)
+    return None
+
+
+def paragraph_style_size(document: Document, paragraph) -> float | None:
+    style = getattr(paragraph, "style", None)
+    for current_style in iter_style_chain(style):
+        size = pt_value(current_style.font.size)
+        if size is not None:
+            return size
+    for style_element in iter_style_elements(document, style_id_from_paragraph(paragraph)):
+        rpr = style_element.find("w:rPr", namespaces=WORD_NS)
+        sz = rpr.find("w:sz", namespaces=WORD_NS) if rpr is not None else None
+        if sz is not None:
+            value = sz.get(f"{{{WORD_NS['w']}}}val")
+            if value and value.isdigit():
+                return round(int(value) / 2, 1)
+    return None
+
+
 def paragraph_fonts(paragraph) -> set[str]:
     return {
         font
@@ -278,13 +305,22 @@ def paragraph_fonts(paragraph) -> set[str]:
     }
 
 
-def paragraph_sizes(paragraph) -> set[float]:
-    return {
-        size
-        for run in iter_runs_with_text(paragraph)
-        for size in [pt_value(run.font.size)]
-        if size is not None
-    }
+def paragraph_sizes(document: Document, paragraph) -> set[float]:
+    sizes = set()
+    for run in iter_runs_with_text(paragraph):
+        direct_size = pt_value(run.font.size)
+        if direct_size is not None:
+            sizes.add(direct_size)
+            continue
+        style_size = run_style_size(document, run)
+        if style_size is not None:
+            sizes.add(style_size)
+    if sizes:
+        return sizes
+    paragraph_level_size = paragraph_style_size(document, paragraph)
+    if paragraph_level_size is not None:
+        sizes.add(paragraph_level_size)
+    return sizes
 
 
 def contains_cjk(text: str) -> bool:
@@ -356,6 +392,23 @@ def roman_number(value: int, upper: bool = False) -> str:
             current -= number
     text = "".join(result)
     return text.upper() if upper else text
+
+
+def roman_to_int(text: str) -> int | None:
+    values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+    current = text.upper().strip()
+    if not current or any(ch not in values for ch in current):
+        return None
+    total = 0
+    previous = 0
+    for ch in reversed(current):
+        value = values[ch]
+        if value < previous:
+            total -= value
+        else:
+            total += value
+            previous = value
+    return total
 
 
 def format_page_label(page_number: int, fmt: str) -> str:
@@ -604,7 +657,7 @@ def check_paragraphs(
         elif kind == "章標題" and not is_catalog_chapter_entry(text):
             in_catalog = False
         fonts = paragraph_fonts(paragraph)
-        sizes = paragraph_sizes(paragraph)
+        sizes = paragraph_sizes(document, paragraph)
         effective_alignment = effective_paragraph_alignment_name(document, paragraph)
         alignment = effective_alignment or "\u672a\u6307\u5b9a"
         line_spacing_label, line_spacing_value = paragraph_line_spacing(paragraph)
@@ -615,7 +668,10 @@ def check_paragraphs(
         normalized_page_text = normalize_text_for_match(page_text)
         page_confirmed = bool(page_number and normalized_source and normalized_source in normalized_page_text)
 
-        if page_confirmed:
+        roman_value = roman_to_int(page_number) if page_number else None
+        suspicious_roman = roman_value is not None and roman_value > 20
+
+        if page_confirmed and not suspicious_roman:
             location = f"\u7b2c {page_number} \u9801"
         elif page_number:
             location = f"\u9801\u78bc\u5f85\u78ba\u8a8d\uff08\u76ee\u524d\u63a8\u5b9a\u70ba\u7b2c {page_number} \u9801\uff09"
