@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>&#35542;&#25991; Word &#26684;&#24335;&#27298;&#26597;&#22120;</title>
+    <style>
+      :root {
+        --bg: #f3efe6;
+        --paper: #fffdf8;
+        --ink: #1d2b34;
+        --muted: #5f6b73;
+        --accent: #1e6f5c;
+        --accent-soft: #dcefe8;
+        --warn: #c26a00;
+        --warn-soft: #fff2db;
+        --error: #b42318;
+        --error-soft: #fee4e2;
+        --info: #175cd3;
+        --info-soft: #d1e9ff;
+        --line: #d8d1c7;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Noto Sans TC", "Microsoft JhengHei", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top right, rgba(30, 111, 92, 0.12), transparent 30%),
+          linear-gradient(180deg, #f7f2e9 0%, var(--bg) 100%);
+        color: var(--ink);
+      }
+      .shell { width: min(1100px, calc(100% - 32px)); margin: 24px auto 48px; }
+      .hero, .card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: 0 18px 50px rgba(29, 43, 52, 0.07);
+      }
+      .hero { padding: 28px; margin-bottom: 20px; }
+      h1, h2, h3 { margin: 0 0 12px; }
+      h1 { font-size: clamp(2rem, 4vw, 3rem); }
+      p { margin: 0; line-height: 1.7; }
+      .muted { color: var(--muted); }
+      .upload-form { display: grid; gap: 14px; margin-top: 22px; }
+      .file-box { padding: 18px; border: 2px dashed #b7c5be; border-radius: 18px; background: #faf8f2; }
+      input[type="file"] { width: 100%; }
+      button {
+        appearance: none;
+        border: 0;
+        border-radius: 999px;
+        padding: 14px 20px;
+        font-size: 1rem;
+        font-weight: 700;
+        color: white;
+        background: linear-gradient(135deg, #1e6f5c, #154f43);
+        cursor: pointer;
+      }
+      .error-box, .report-grid { margin-top: 20px; }
+      .error-box { padding: 16px 18px; border-radius: 18px; background: var(--error-soft); color: var(--error); border: 1px solid #fda29b; }
+      .report-grid { display: grid; gap: 20px; }
+      .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+      .stat { padding: 18px; border-radius: 20px; border: 1px solid var(--line); background: white; }
+      .stat strong { display: block; font-size: 2rem; margin-bottom: 8px; }
+      .pill-row { display: flex; flex-wrap: wrap; gap: 10px; }
+      .pill { padding: 9px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.95rem; }
+      .card { padding: 22px; }
+      .issue { padding: 16px; border-radius: 18px; margin-top: 12px; }
+      .issue.error { background: var(--error-soft); border: 1px solid #fda29b; }
+      .issue.warning { background: var(--warn-soft); border: 1px solid #f7b267; }
+      .issue.info { background: var(--info-soft); border: 1px solid #84caff; }
+      .issue h3 { margin-bottom: 8px; font-size: 1.2rem; }
+      .issue small { display: block; margin-top: 8px; color: var(--muted); }
+      ul { margin: 12px 0 0; padding-left: 20px; }
+      li + li { margin-top: 8px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.95rem; }
+      th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      @media (max-width: 720px) {
+        .shell { width: min(100% - 20px, 1100px); }
+        .hero, .card { border-radius: 18px; padding: 18px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <h1>&#35542;&#25991; Word &#26684;&#24335;&#27298;&#26597;&#22120;</h1>
+        <p class="muted">&#19978;&#20659; `.docx` &#35542;&#25991;&#27284;&#24460;&#65292;&#31995;&#32113;&#26371;&#20381;&#25818;&#22294;&#26360;&#39208;&#35215;&#31684;&#33258;&#21205;&#29986;&#20986;&#35443;&#32048;&#27298;&#26597;&#22577;&#21578;&#12290;</p>
+        <form class="upload-form" method="post" enctype="multipart/form-data">
+          <div class="file-box">
+            <label for="file">&#36984;&#25799; Word &#27284;&#26696;</label>
+            <input id="file" name="file" type="file" accept=".docx" required>
+          </div>
+          <button type="submit">&#38283;&#22987;&#27298;&#26597;</button>
+        </form>
+        {% if error %}
+          <div class="error-box">{{ error }}</div>
+        {% endif %}
+      </section>
+      {% if report %}
+        <section class="report-grid">
+          <div class="card">
+            <h2>&#27298;&#26597;&#32317;&#35261;</h2>
+            <p class="muted">&#27284;&#21517;&#65306;{{ report.file_name }}</p>
+            <div class="stats">
+              <div class="stat"><strong>{{ report.summary.errors }}</strong><span>&#37679;&#35492;</span></div>
+              <div class="stat"><strong>{{ report.summary.warnings }}</strong><span>&#35686;&#21578;</span></div>
+              <div class="stat"><strong>{{ report.summary.infos }}</strong><span>&#25552;&#31034;</span></div>
+              <div class="stat"><strong>{{ report.coverage.section_count }}</strong><span>&#31680;&#25976;</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>&#26412;&#27425;&#27298;&#26597;&#38917;&#30446;</h2>
+            <div class="pill-row">
+              {% for item in report.summary.checked_items %}
+                <span class="pill">{{ item }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="card">
+            <h2>&#25991;&#20214;&#23660;&#24615;&#33287;&#29256;&#38754;&#36039;&#35338;</h2>
+            <ul>
+              <li>&#27573;&#33853;&#25976;&#65306;{{ report.coverage.paragraph_count }}</li>
+              <li>&#38913;&#30908;&#27396;&#20301;&#65306;{% if report.coverage.page_number.present %}&#24050;&#20597;&#28204;&#21040; ({{ report.coverage.page_number.format }}){% else %}&#26410;&#20597;&#28204;&#21040;{% endif %}</li>
+              <li>&#28014;&#27700;&#21360;&#65306;{% if report.coverage.watermark %}&#24050;&#20597;&#28204;&#21040;&#30456;&#38364;&#29289;&#20214;{% else %}&#26410;&#20597;&#28204;&#21040;{% endif %}</li>
+              <li>Word &#20445;&#35703;&#65306;{% if report.coverage.protection.enabled %}&#24050;&#21855;&#29992; ({{ report.coverage.protection.mode }}){% else %}&#26410;&#21855;&#29992;{% endif %}</li>
+            </ul>
+            <table>
+              <thead>
+                <tr><th>&#31680;&#27425;</th><th>&#32025;&#24373;&#22823;&#23567;</th><th>&#37002;&#30028; (&#19978; / &#19979; / &#24038; / &#21491;)</th></tr>
+              </thead>
+              <tbody>
+                {% for section in report.section_results %}
+                  <tr>
+                    <td>{{ section.index }}</td>
+                    <td>{{ section.page_width_cm }} x {{ section.page_height_cm }} cm</td>
+                    <td>{{ section.top_cm }} / {{ section.bottom_cm }} / {{ section.left_cm }} / {{ section.right_cm }} cm</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h2>&#21839;&#38988;&#33287;&#20462;&#27491;&#24314;&#35696;</h2>
+            {% if report.issues %}
+              {% for issue in report.issues %}
+                <article class="issue {{ issue.severity }}">
+                  <h3>{{ issue.title }}</h3>
+                  <p><strong>&#20998;&#39006;&#65306;</strong>{{ issue.category }}</p>
+                  {% if issue.location %}<p><strong>&#20301;&#32622;&#65306;</strong>{{ issue.location }}</p>{% endif %}
+                  <p>{{ issue.details }}</p>
+                  {% if issue.suggestion %}<small>&#24314;&#35696;&#65306;{{ issue.suggestion }}</small>{% endif %}
+                </article>
+              {% endfor %}
+            {% else %}
+              <p>&#30446;&#21069;&#35215;&#21063;&#19979;&#26410;&#20597;&#28204;&#21040;&#26126;&#39023;&#30340;&#26684;&#24335;&#21839;&#38988;&#12290;</p>
+            {% endif %}
+          </div>
+          <div class="card">
+            <h2>&#24037;&#20855;&#38480;&#21046;</h2>
+            <ul>
+              {% for item in report.summary.limitations %}
+                <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </section>
+      {% endif %}
+    </main>
+  </body>
+</html>
