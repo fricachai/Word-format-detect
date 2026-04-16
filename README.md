@@ -29,17 +29,24 @@ It reports:
 - Theme- or style-inherited fonts may not always appear at run level.
 - Paper weight, duplex printing, and final PDF security still need manual review.
 
-## Run
+## Run locally with Streamlit
 
 ```bash
-py -X utf8 app.py
+streamlit run app.py
 ```
 
-Then open <http://127.0.0.1:5000>
+## Streamlit Cloud
+
+- Set the main file to `app.py`
+- Deploy normally on Streamlit Cloud
+- Do not run this project with `python app.py` on Streamlit Cloud
+
+## Alternative local Flask version
+
+The old Flask UI has been replaced by a Streamlit entrypoint so deployment on Streamlit Cloud works correctly.
 
 ## Files
 
-- `app.py`: Flask upload UI
+- `app.py`: Streamlit upload UI
 - `thesis_checker.py`: DOCX analysis engine
-- `templates/index.html`: report page
 - `requirements.txt`: dependencies
