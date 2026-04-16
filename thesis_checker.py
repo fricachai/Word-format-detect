@@ -41,6 +41,81 @@ class Issue:
     suggestion: str | None = None
 
 
+def xml_bool(element, attr_name: str = "val") -> bool | None:
+    if element is None:
+        return None
+    value = element.get(f"{{{WORD_NS['w']}}}{attr_name}")
+    if value is None:
+        return True
+    return value not in {"0", "false", "False", "off"}
+
+
+def style_id_from_paragraph(paragraph) -> str | None:
+    ppr = getattr(paragraph._p, "pPr", None)
+    pstyle = getattr(ppr, "pStyle", None)
+    if pstyle is None:
+        return None
+    return pstyle.val
+
+
+def style_id_from_run(run) -> str | None:
+    rpr = getattr(run._r, "rPr", None)
+    rstyle = getattr(rpr, "rStyle", None)
+    if rstyle is None:
+        return None
+    return rstyle.val
+
+
+def styles_root(document: Document):
+    try:
+        return document.part.styles_part.element
+    except Exception:
+        return None
+
+
+def find_style_element(document: Document, style_id: str | None):
+    if not style_id:
+        return None
+    root = styles_root(document)
+    if root is None:
+        return None
+    xpath = f".//w:style[@w:styleId='{style_id}']"
+    matches = root.xpath(xpath, namespaces=WORD_NS)
+    return matches[0] if matches else None
+
+
+def style_based_on_id(style_element) -> str | None:
+    if style_element is None:
+        return None
+    based_on = style_element.find("w:basedOn", namespaces=WORD_NS)
+    if based_on is None:
+        return None
+    return based_on.get(f"{{{WORD_NS['w']}}}val")
+
+
+def iter_style_elements(document: Document, style_id: str | None):
+    current_id = style_id
+    visited = set()
+    while current_id and current_id not in visited:
+        visited.add(current_id)
+        style_element = find_style_element(document, current_id)
+        if style_element is None:
+            break
+        yield style_element
+        current_id = style_based_on_id(style_element)
+
+
+def xml_alignment_to_name(value: str | None) -> str | None:
+    mapping = {
+        "left": "\u9760\u5de6\u5c0d\u9f4a",
+        "center": "\u7f6e\u4e2d",
+        "right": "\u9760\u53f3\u5c0d\u9f4a",
+        "both": "\u5de6\u53f3\u5c0d\u9f4a",
+        "distribute": "\u5206\u6563\u5c0d\u9f4a",
+    }
+    return mapping.get(value)
+
+
 def length_to_cm(length: Length | None) -> float | None:
     return None if length is None else round(length.cm, 2)
 
@@ -102,20 +177,45 @@ def iter_style_chain(style) -> Iterable:
         current = getattr(current, "base_style", None)
 
 
-def effective_paragraph_alignment(paragraph) -> int | None:
-    if paragraph.alignment is not None:
-        return paragraph.alignment
+def direct_paragraph_alignment_name(paragraph) -> str | None:
+    ppr = getattr(paragraph._p, "pPr", None)
+    jc = getattr(ppr, "jc", None)
+    if jc is not None and getattr(jc, "val", None):
+        return xml_alignment_to_name(jc.val)
+    return None
+
+
+def effective_paragraph_alignment_name(document: Document, paragraph) -> str | None:
+    direct_name = direct_paragraph_alignment_name(paragraph)
+    if direct_name:
+        return direct_name
+
     style = getattr(paragraph, "style", None)
     for current_style in iter_style_chain(style):
         alignment = current_style.paragraph_format.alignment
         if alignment is not None:
-            return alignment
+            return alignment_name(alignment)
+
+    for style_element in iter_style_elements(document, style_id_from_paragraph(paragraph)):
+        ppr = style_element.find("w:pPr", namespaces=WORD_NS)
+        jc = ppr.find("w:jc", namespaces=WORD_NS) if ppr is not None else None
+        if jc is not None:
+            return xml_alignment_to_name(jc.get(f"{{{WORD_NS['w']}}}val"))
+
+    text = paragraph_text(paragraph)
+    raw_text = paragraph.text or ""
+    if text and raw_text.count("\t") >= 1:
+        return "\u7591\u4f3c\u4ee5 Tab \u505a\u8996\u89ba\u7f6e\u4e2d"
     return None
 
 
 def effective_run_bold(run) -> bool | None:
+    rpr = getattr(run._r, "rPr", None)
+    if rpr is not None and getattr(rpr, "b", None) is not None:
+        return xml_bool(rpr.b)
     if run.bold is not None:
         return run.bold
+
     style = getattr(run, "style", None)
     for current_style in iter_style_chain(style):
         if current_style.font.bold is not None:
@@ -123,7 +223,30 @@ def effective_run_bold(run) -> bool | None:
     return None
 
 
-def effective_paragraph_bold(paragraph) -> bool:
+def paragraph_style_bold(document: Document, paragraph) -> bool | None:
+    style = getattr(paragraph, "style", None)
+    for current_style in iter_style_chain(style):
+        if current_style.font.bold is not None:
+            return current_style.font.bold
+
+    for style_element in iter_style_elements(document, style_id_from_paragraph(paragraph)):
+        rpr = style_element.find("w:rPr", namespaces=WORD_NS)
+        bold = rpr.find("w:b", namespaces=WORD_NS) if rpr is not None else None
+        if bold is not None:
+            return xml_bool(bold)
+    return None
+
+
+def run_style_bold(document: Document, run) -> bool | None:
+    for style_element in iter_style_elements(document, style_id_from_run(run)):
+        rpr = style_element.find("w:rPr", namespaces=WORD_NS)
+        bold = rpr.find("w:b", namespaces=WORD_NS) if rpr is not None else None
+        if bold is not None:
+            return xml_bool(bold)
+    return None
+
+
+def effective_paragraph_bold(document: Document, paragraph) -> bool:
     runs = list(iter_runs_with_text(paragraph))
     if not runs:
         return False
@@ -131,17 +254,18 @@ def effective_paragraph_bold(paragraph) -> bool:
     known_votes = 0
     for run in runs:
         bold = effective_run_bold(run)
+        if bold is None:
+            bold = run_style_bold(document, run)
+        if bold is None:
+            bold = paragraph_style_bold(document, paragraph)
         if bold is not None:
             known_votes += 1
             if bold:
                 bold_votes += 1
     if known_votes:
         return bold_votes >= max(1, known_votes // 2)
-    style = getattr(paragraph, "style", None)
-    for current_style in iter_style_chain(style):
-        if current_style.font.bold is not None:
-            return current_style.font.bold
-    return False
+    paragraph_level = paragraph_style_bold(document, paragraph)
+    return bool(paragraph_level)
 
 
 def paragraph_fonts(paragraph) -> set[str]:
@@ -306,24 +430,25 @@ def check_paragraphs(document: Document, issues: list[Issue]) -> list[dict]:
             in_abstract = False
         fonts = paragraph_fonts(paragraph)
         sizes = paragraph_sizes(paragraph)
-        alignment = alignment_name(effective_paragraph_alignment(paragraph))
+        effective_alignment = effective_paragraph_alignment_name(document, paragraph)
+        alignment = effective_alignment or "\u672a\u6307\u5b9a"
         line_spacing_label, line_spacing_value = paragraph_line_spacing(paragraph)
         location = f"\u7b2c {index} \u6bb5"
         paragraph_summaries.append({"段落序號": index, "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
         if kind == "章標題":
-            if alignment != "\u7f6e\u4e2d":
+            if alignment not in {"\u7f6e\u4e2d", "\u7591\u4f3c\u4ee5 Tab \u505a\u8996\u89ba\u7f6e\u4e2d"}:
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u672a\u7f6e\u4e2d", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\uff0c\u5c0d\u9f4a\u65b9\u5f0f\u70ba\u300c{alignment}\u300d\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba\u7f6e\u4e2d\u3002")
-            if not effective_paragraph_bold(paragraph):
+            if not effective_paragraph_bold(document, paragraph):
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u672a\u8a2d\u70ba\u7c97\u9ad4", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba\u7c97\u9ad4\u3002")
             if 16.0 not in sizes:
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7ae0\u6a19\u984c\u4e0d\u662f 16 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes) or '\u672a\u660e\u78ba\u8a2d\u5b9a'}\u3002", location, "\u8acb\u5c07\u7ae0\u6a19\u984c\u8a2d\u70ba 16 pt\u3002")
         elif kind == "節標題":
-            if not effective_paragraph_bold(paragraph):
+            if not effective_paragraph_bold(document, paragraph):
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7bc0\u6a19\u984c\u672a\u8a2d\u70ba\u7c97\u9ad4", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\u3002", location, "\u8acb\u5c07\u7bc0\u6a19\u984c\u8a2d\u70ba\u7c97\u9ad4\u3002")
             if 14.0 not in sizes:
                 add_issue(issues, "error", "\u6a19\u984c\u683c\u5f0f", f"{location}\u7684\u7bc0\u6a19\u984c\u4e0d\u662f 14 pt", f"\u5075\u6e2c\u5230\u7684\u5b57\u7d1a\u70ba {sorted(sizes) or '\u672a\u660e\u78ba\u8a2d\u5b9a'}\u3002", location, "\u8acb\u5c07\u7bc0\u6a19\u984c\u8a2d\u70ba 14 pt\u3002")
         elif kind in {"摘要標題", "前置標題"}:
-            if alignment != "\u7f6e\u4e2d":
+            if alignment not in {"\u7f6e\u4e2d", "\u7591\u4f3c\u4ee5 Tab \u505a\u8996\u89ba\u7f6e\u4e2d"}:
                 add_issue(issues, "warning", "\u524d\u7f6e\u9801", f"{location}\u7684\u524d\u7f6e\u6a19\u984c\u672a\u7f6e\u4e2d", f"\u5075\u6e2c\u5230\u7684\u6a19\u984c\u6587\u5b57\u70ba\u300c{text}\u300d\uff0c\u5c0d\u9f4a\u65b9\u5f0f\u70ba\u300c{alignment}\u300d\u3002", location, "\u8acb\u5c07\u6a19\u984c\u8abf\u6574\u70ba\u7f6e\u4e2d\u3002")
         elif kind == "關鍵字":
             if 14.0 not in sizes:
