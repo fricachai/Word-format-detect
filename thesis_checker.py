@@ -380,18 +380,24 @@ def parse_section_page_settings(sect_pr, previous_start: int, previous_fmt: str)
     return start, fmt
 
 
-def paragraph_page_map(docx_path: Path) -> dict[int, str]:
+def normalize_text_for_match(text: str) -> str:
+    return re.sub(r"\s+", "", text or "")
+
+
+def paragraph_page_details(docx_path: Path) -> tuple[dict[int, str], dict[int, str], dict[int, str]]:
     root = parse_xml(extract_docx_xml(docx_path, "word/document.xml"))
     if root is None:
-        return {}
+        return {}, {}, {}
 
     body = root.find("w:body", namespaces=WORD_NS)
     if body is None:
-        return {}
+        return {}, {}, {}
 
     physical_page_number = 1
     paragraph_index = 0
     physical_map: dict[int, int] = {}
+    paragraph_text_map: dict[int, str] = {}
+    page_text_map: dict[int, list[str]] = {}
     sections: list[dict] = []
     section_start_para = 1
     current_start = 1
@@ -403,6 +409,12 @@ def paragraph_page_map(docx_path: Path) -> dict[int, str]:
         if local_name == "p":
             paragraph_index += 1
             physical_map[paragraph_index] = physical_page_number
+            page_text_map.setdefault(physical_page_number, [])
+
+            paragraph_text = "".join(child.xpath(".//w:t/text()", namespaces=WORD_NS)).strip()
+            paragraph_text_map[paragraph_index] = paragraph_text
+            if paragraph_text:
+                page_text_map[physical_page_number].append(paragraph_text)
 
             rendered_breaks = child.xpath(".//w:lastRenderedPageBreak", namespaces=WORD_NS)
             manual_breaks = child.xpath(".//w:br[@w:type='page']", namespaces=WORD_NS)
@@ -445,6 +457,7 @@ def paragraph_page_map(docx_path: Path) -> dict[int, str]:
         )
 
     label_map: dict[int, str] = {}
+    physical_label_map: dict[int, str] = {}
     for section in sections:
         if section["start_para"] > section["end_para"]:
             continue
@@ -454,9 +467,19 @@ def paragraph_page_map(docx_path: Path) -> dict[int, str]:
             physical_page = physical_map.get(para_idx, start_physical_page)
             offset = physical_page - start_physical_page
             displayed_page = section["start_page_number"] + offset
-            label_map[para_idx] = format_page_label(displayed_page, section["fmt"])
+            page_label = format_page_label(displayed_page, section["fmt"])
+            label_map[para_idx] = page_label
+            physical_label_map[physical_page] = page_label
 
-    return label_map
+    rendered_page_text_map = {
+        physical_page: " ".join(lines)
+        for physical_page, lines in page_text_map.items()
+    }
+
+    return label_map, paragraph_text_map, {
+        physical_label_map.get(physical_page, str(physical_page)): rendered_page_text_map.get(physical_page, "")
+        for physical_page in sorted(page_text_map)
+    }
 
 
 def page_number_info(docx_path: Path) -> dict[str, str | bool]:
@@ -560,7 +583,13 @@ def analyze_sections(document: Document, issues: list[Issue]) -> list[dict]:
     return results
 
 
-def check_paragraphs(document: Document, issues: list[Issue], page_map: dict[int, str]) -> list[dict]:
+def check_paragraphs(
+    document: Document,
+    issues: list[Issue],
+    page_map: dict[int, str],
+    paragraph_text_map: dict[int, str],
+    page_text_map: dict[str, str],
+) -> list[dict]:
     paragraph_summaries = []
     in_abstract = False
     in_catalog = False
@@ -580,7 +609,19 @@ def check_paragraphs(document: Document, issues: list[Issue], page_map: dict[int
         alignment = effective_alignment or "\u672a\u6307\u5b9a"
         line_spacing_label, line_spacing_value = paragraph_line_spacing(paragraph)
         page_number = page_map.get(index)
-        location = f"\u7b2c {page_number} \u9801" if page_number else f"\u7b2c {index} \u6bb5"
+        source_text = paragraph_text_map.get(index, text)
+        normalized_source = normalize_text_for_match(source_text)
+        page_text = page_text_map.get(page_number or "", "")
+        normalized_page_text = normalize_text_for_match(page_text)
+        page_confirmed = bool(page_number and normalized_source and normalized_source in normalized_page_text)
+
+        if page_confirmed:
+            location = f"\u7b2c {page_number} \u9801"
+        elif page_number:
+            location = f"\u9801\u78bc\u5f85\u78ba\u8a8d\uff08\u76ee\u524d\u63a8\u5b9a\u70ba\u7b2c {page_number} \u9801\uff09"
+        else:
+            location = f"\u9801\u78bc\u7121\u6cd5\u78ba\u5b9a\uff08\u6bb5\u843d\u5e8f\u865f {index}\uff09"
+
         paragraph_summaries.append({"頁碼": page_number or "\u7121\u6cd5\u5224\u5b9a", "文字內容": text[:120], "段落類型": kind, "字型": sorted(fonts), "字級": sorted(sizes), "對齊": alignment, "行距": line_spacing_label})
         if in_catalog and is_catalog_chapter_entry(text):
             if not effective_paragraph_bold(document, paragraph):
@@ -643,9 +684,9 @@ def analyze_docx(docx_path: str | Path) -> dict:
     path = Path(docx_path)
     document = Document(path)
     issues: list[Issue] = []
-    page_map = paragraph_page_map(path)
+    page_map, paragraph_text_map, page_text_map = paragraph_page_details(path)
     section_results = analyze_sections(document, issues)
-    paragraph_results = check_paragraphs(document, issues, page_map)
+    paragraph_results = check_paragraphs(document, issues, page_map, paragraph_text_map, page_text_map)
     coverage = summarize_document(document, path, issues)
     severity_rank = {"error": 0, "warning": 1, "info": 2}
     issues_sorted = sorted(issues, key=lambda item: (severity_rank.get(item.severity, 9), item.category, item.location or ""))
