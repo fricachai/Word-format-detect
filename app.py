@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -8,6 +9,19 @@ import streamlit as st
 from thesis_checker import analyze_docx, analyze_pdf
 
 ALLOWED_EXTENSIONS = {".docx", ".pdf"}
+
+
+def current_version() -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return completed.stdout.strip()
+    except Exception:
+        return "unknown"
 
 
 def save_uploaded_file(uploaded_file) -> Path:
@@ -89,6 +103,7 @@ def main() -> None:
     )
 
     st.title("\u8ad6\u6587 Word \u683c\u5f0f\u6aa2\u67e5\u5668")
+    st.caption(f"\u7248\u672c\uff1a{current_version()}")
     st.write(
         "\u4e0a\u50b3 `.docx` \u6216 `.pdf` \u8ad6\u6587\u6a94\uff0c\u7cfb\u7d71\u6703\u4f9d\u64da\u5716\u66f8\u9928\u898f\u7bc4\u81ea\u52d5\u7522\u51fa\u8a73\u7d30\u6aa2\u67e5\u5831\u544a\u3002"
     )
